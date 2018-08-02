@@ -11,6 +11,7 @@ from envs import create_atari_env
 from model import ActorCritic
 from test import test
 from train import train
+import time
 
 # Based on
 # https://github.com/pytorch/examples/tree/master/mnist_hogwild
@@ -43,6 +44,7 @@ parser.add_argument('--no-shared', default=False,
 
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn')
     os.environ['OMP_NUM_THREADS'] = '1'
     os.environ['CUDA_VISIBLE_DEVICES'] = ""
 
@@ -50,8 +52,7 @@ if __name__ == '__main__':
 
     torch.manual_seed(args.seed)
     env = create_atari_env(args.env_name)
-    shared_model = ActorCritic(
-        env.observation_space.shape[0], env.action_space)
+    shared_model = ActorCritic(env.observation_space.shape[0], env.action_space)
     shared_model.share_memory()
 
     if args.no_shared:
@@ -70,8 +71,10 @@ if __name__ == '__main__':
     processes.append(p)
 
     for rank in range(0, args.num_processes):
-        p = mp.Process(target=train, args=(rank, args, shared_model, counter, lock, optimizer))
+        p = mp.Process(target=train, args=(rank, args, shared_model, counter, lock, optimizer, False))
         p.start()
         processes.append(p)
+        time.sleep(5)
+
     for p in processes:
         p.join()

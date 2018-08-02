@@ -15,18 +15,23 @@ def ensure_shared_grads(model, shared_model):
         shared_param._grad = param.grad
 
 
-def train(rank, args, shared_model, counter, lock, optimizer=None):
+def train(rank, args, shared_model, counter, lock, optimizer=None, DEBUG=False):
+    if DEBUG:
+        print('rank: {}'.format(rank))
     torch.manual_seed(args.seed + rank)
 
     env = create_atari_env(args.env_name)
     env.seed(args.seed + rank)
 
     model = ActorCritic(env.observation_space.shape[0], env.action_space)
+    model.train()
+    if DEBUG:
+        print('agent{:03d}: model created'.format(rank))
 
     if optimizer is None:
         optimizer = optim.Adam(shared_model.parameters(), lr=args.lr)
-
-    model.train()
+    if DEBUG:
+        print('agent{:03d}: optimizer created'.format(rank))
 
     state = env.reset()
     state = torch.from_numpy(state)
@@ -34,6 +39,8 @@ def train(rank, args, shared_model, counter, lock, optimizer=None):
 
     episode_length = 0
     while True:
+        if DEBUG:
+            print('agent{:03d}: while loop'.format(rank))
         # Sync with the shared model
         model.load_state_dict(shared_model.state_dict())
         if done:
@@ -49,24 +56,45 @@ def train(rank, args, shared_model, counter, lock, optimizer=None):
         entropies = []
 
         for step in range(args.num_steps):
+            if DEBUG:
+                print('agent{:03d}: for loop p1'.format(rank))
+
             episode_length += 1
-            value, logit, (hx, cx) = model((Variable(state.unsqueeze(0)),
-                                            (hx, cx)))
-            prob = F.softmax(logit)
-            log_prob = F.log_softmax(logit)
+            if DEBUG:
+                print('agent{:03d}: for loop p1.1'.format(rank))
+                print(state.unsqueeze(0).size())
+            with lock:
+                value, logit, (hx, cx) = model((Variable(state.unsqueeze(0)), (hx, cx)))
+            if DEBUG:
+                print('agent{:03d}: for loop p2'.format(rank))
+            # prob = F.softmax(logit)
+            prob = F.softmax(logit, dim=1)
+            log_prob = F.log_softmax(logit, dim=1)
+            if DEBUG:
+                print('agent{:03d}: for loop p3'.format(rank))
             entropy = -(log_prob * prob).sum(1, keepdim=True)
             entropies.append(entropy)
+            if DEBUG:
+                print('agent{:03d}: for loop p4'.format(rank))
 
             action = prob.multinomial(num_samples=1).data
             log_prob = log_prob.gather(1, Variable(action))
+            if DEBUG:
+                print('agent{:03d}: for loop p5'.format(rank))
 
             state, reward, done, _ = env.step(action.numpy())
             done = done or episode_length >= args.max_episode_length
             reward = max(min(reward, 1), -1)
+            if DEBUG:
+                print('agent{:03d}: for loop p6'.format(rank))
 
             with lock:
                 counter.value += 1
+                if DEBUG:
+                    print('agent{:03d}: counter plus {:09d}'.format(rank, counter.value))
 
+            if DEBUG:
+                print('agent{:03d}: for loop p7'.format(rank))
             if done:
                 episode_length = 0
                 state = env.reset()

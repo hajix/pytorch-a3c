@@ -57,10 +57,10 @@ class ActorCritic(torch.nn.Module):
 
     def forward(self, inputs):
         inputs, (hx, cx) = inputs
-        x = F.elu(self.conv1(inputs))
-        x = F.elu(self.conv2(x))
-        x = F.elu(self.conv3(x))
-        x = F.elu(self.conv4(x))
+        x = F.relu(self.conv1(inputs), inplace=True)
+        x = F.relu(self.conv2(x), inplace=True)
+        x = F.relu(self.conv3(x), inplace=True)
+        x = F.relu(self.conv4(x), inplace=True)
 
         x = x.view(-1, 32 * 3 * 3)
         hx, cx = self.lstm(x, (hx, cx))
